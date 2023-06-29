@@ -89,9 +89,9 @@ def normalized_mutual_information(X, Y, n_classes):
     else:
         return 0.0
     
-######################################
-# Function to perform the kernel-PCA #
-######################################
+#######################################
+# Functions to perform the kernel-PCA #
+#######################################
 def gaussian_kernel_matrix(X, sigma=1.0):
     n_samples = X.shape[0]
     X_norms = np.linalg.norm(X, axis=0)
@@ -135,3 +135,146 @@ def k_pca(data, n_components=None, fidelity_threshold=0.95, sigma=1.0, plot_spec
     transformed_data = np.dot(data, pca_components)
 
     return transformed_data, pca_components
+
+###############################################
+# Functions to implement the DBSCAN algorithm #
+###############################################
+
+
+def find_neighbors(X, center_id, eps):
+    neighbors = []
+    center_point = X[center_id]
+    for i, point in enumerate(X):
+        if np.linalg.norm(point-center_point) <= eps:
+            neighbors.append(i)
+    return neighbors
+
+
+def expand_cluster(X, labels, center_id, neighbors, cluster_label, eps, min_pts):
+    labels[center_id] = cluster_label
+    i = 0
+    while i < len(neighbors):
+        neighbor_id = neighbors[i]
+        
+        if labels[neighbor_id] == -1:  #noise label becomes a border point
+            labels[neighbor_id] = cluster_label
+
+        elif labels[neighbor_id] == 0:
+            labels[neighbor_id] = cluster_label
+            new_neighbors = find_neighbors(X, neighbor_id, eps)
+            if len(new_neighbors) >= min_pts:
+                neighbors.extend(new_neighbors)
+
+        i += 1
+
+
+def dbscan(X, eps, min_pts):
+    n_samples = X.shape[0]
+    labels = np.zeros(n_samples, dtype=int)  #0 for unvisited points, -1 noise points, positive integers for clusters
+    cluster_label = 0
+    for i in range(n_samples):
+        if labels[i] != 0:  #already visited 
+            continue
+        neighbors = find_neighbors(X, i, eps)
+
+        if len(neighbors) < min_pts:
+            labels[i] = -1  #assign noise label
+        else:
+            cluster_label += 1
+            expand_cluster(X, labels, i, neighbors, cluster_label, eps, min_pts)
+    return labels
+
+#####################
+# K-means algorithm #
+#####################
+
+def kmeans(X, k, max_iterations=10000):
+    n_samples, _ = X.shape
+
+    random_indices = np.random.choice(n_samples, k, replace=False)
+    centroids = X[random_indices]
+
+    for _ in range(max_iterations):
+        distances = np.sqrt(((X[:, np.newaxis] - centroids) ** 2).sum(axis=2))
+        labels = np.argmin(distances, axis=1)
+
+        new_centroids = np.zeros_like(centroids)
+        for i in range(k):
+            cluster_samples = X[labels == i]
+            if len(cluster_samples) > 0:
+                new_centroids[i] = cluster_samples.mean(axis=0)
+            else:
+                new_centroids[i] = centroids[i]
+
+        if np.allclose(centroids, new_centroids):
+            break
+        centroids = new_centroids
+    
+    return labels, centroids
+
+
+
+#########################
+# Clustering validation #
+#########################
+
+def silhouette_score(X, labels):
+    '''
+    Function to calculate the average of the silhoutte coefficients
+    '''
+    n_samples = X.shape[0]
+    silhouette_coefficients = np.zeros(n_samples)
+    
+    for i in range(n_samples):
+        mask = (labels==labels[i])
+        a_i = np.mean(np.linalg.norm(X[mask] - X[i], axis=1)) #cohesion, average distance from vectors belonging to the same clusters
+        
+        unique_labels = np.unique(labels)
+        b_i = np.inf #separation
+
+        for label in unique_labels:
+            if label == labels[i]:
+                continue
+            
+            mask = (labels==label)
+            temp = np.mean(np.linalg.norm(X[mask] - X[i], axis=1)) #average distance from vectors belonging to other clusters
+            if temp < b_i:
+                b_i = temp
+        silhouette_coefficients[i] = (b_i - a_i) / max(a_i, b_i)
+        
+    return np.mean(silhouette_coefficients)
+
+
+def kmeans_objective(X, labels, centroids):
+    
+    n_samples, _ = X.shape
+    objective = 0.0
+
+    for i in range(n_samples):
+        centroid = centroids[labels[i]]
+        distance = np.linalg.norm(X[i] - centroid)
+        objective += distance ** 2
+
+    return objective
+
+
+#######################################
+# Functions for Markov State Modeling #
+#######################################
+
+
+def estimate_transition_prob_matrix(labels, tau):
+
+    n_states = np.max(labels) + 1
+    P = np.zeros(shape=(n_states, n_states))
+
+    #we count each transition from state i to j for a time lag of tau
+    ending_states = labels[tau:]
+    for (i, j) in zip(labels, ending_states):
+        P[i, j] += 1
+    
+    #we now make it a probability
+    row_sums = P.sum(axis=1)
+    P = P/row_sums[:,np.newaxis]
+
+    return P
