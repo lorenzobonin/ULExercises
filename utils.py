@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy as sp
 
 #########################################
 # Function to get the covariance matrix #
@@ -40,11 +41,10 @@ def pca(data, n_components=None, fidelity_threshold=0.95, plot_spectrum = False)
     # if the number of principal components is not provided by the user, get it automatically
     if n_components is None:
         n_components=get_n_components(sorted_eigenvalues, fidelity_threshold)
-    
-    # plotting the eigenvalues
-    x=np.arange(0,len(sorted_eigenvalues))
 
     if plot_spectrum:
+        # plotting the eigenvalues
+        x=np.arange(0,len(sorted_eigenvalues))
         plt.figure()
         plt.semilogy()
         plt.title('Spectrum of the eigenvalues in logscale')
@@ -81,65 +81,54 @@ def normalized_mutual_information(X, Y, n_classes):
         for j in range(P_xy.shape[1]):
             if P_xy[i,j] > 0.0:
                 MI += P_xy[i,j] * np.log(P_xy[i,j] / (P_x[i] * P_y[j]))
-    H_X = shan_entropy(X, n_classes)
-    H_Y = shan_entropy(Y, n_classes)
-    max_MI = min(H_X, H_Y)
-    if max_MI > 0.0:
-        return MI / max_MI
-    else:
-        return 0.0
+    # H_X = shan_entropy(X, n_classes)
+    # H_Y = shan_entropy(Y, n_classes)
+    # max_MI = min(H_X, H_Y)
+    # if max_MI > 0.0:
+    #    return MI / max_MI
+    #else:
+    #    return 0.0
+    return MI
     
 #######################################
 # Functions to perform the kernel-PCA #
 #######################################
-def gaussian_kernel_matrix(X, sigma=1.0):
-    n_samples = X.shape[0]
-    X_norms = np.linalg.norm(X, axis=0)
-    X_norms = np.tile(X_norms, (n_samples, 1))
-    X = X / X_norms
-    K = np.exp(-np.sum((X[:, None, :] - X[None, :, :])**2, axis=-1) / (2 * (sigma ** 2)))
-    np.fill_diagonal(K, 1)
+
+# Compute the distance matrix
+def get_distance_matrix(X):
+    A = X[:, np.newaxis, :]
+    B = X[np.newaxis, :, :]
+    return np.sqrt(np.sum(np.square(A-B), axis=-1))
+
+def gaussian_kernel(distance_matrix, sigma):
+    return np.exp(-(distance_matrix**2)/(2*(sigma**2)))
+
+def get_double_centered_Gram(K):
     N = K.shape[0]
-    one_n = np.ones((N, N)) / N
-    K = K - one_n.dot(K) - K.dot(one_n) + one_n.dot(K).dot(one_n)
-    return K
+    C = np.sum(K)/N**2
+    B = np.add(np.zeros_like(K), np.sum(K, axis=1))
+    B = np.add(B, B.T)
+    B /= N
+    return K - B + C
 
 
-def k_pca(data, n_components=None, fidelity_threshold=0.95, sigma=1.0, plot_spectrum = False):
+def k_pca(data, n_components=2, sigma=1.0):
 
-    
-    data = gaussian_kernel_matrix(data, sigma)
-    eigenvalues, eigenvectors = np.linalg.eigh(data)
+    K = gaussian_kernel(get_distance_matrix(data), sigma=sigma)
+    G = get_double_centered_Gram(K)
 
-    sorted_eigenvalues = np.sort(eigenvalues)[::-1]
-    sorted_indices = np.argsort(eigenvalues)[::-1]
-    sorted_eigenvectors = eigenvectors[:, sorted_indices]
+    eigenvalues, eigenvectors = sp.linalg.eigh(G, subset_by_index=(len(G)-n_components, len(G)-1))
+    sorted_eigenvalues = eigenvalues[::-1]
+    sorted_eigenvectors = eigenvectors[:,::-1]
 
-    # if the number of principal components is not provided by the user, get it automatically
-    if n_components is None:
-        n_components=get_n_components(sorted_eigenvalues, fidelity_threshold)
-    
-    # plotting the eigenvalues
-    if plot_spectrum:
-        x=np.arange(0,len(sorted_eigenvalues))
-        plt.figure()
-        plt.semilogy()
-        plt.title('Spectrum of the eigenvalues in logscale')
-        plt.plot(x[:n_components], sorted_eigenvalues[:n_components], 'o', color = "orange", label="Selected eigenvalues")
-        plt.plot(x[n_components:], sorted_eigenvalues[n_components:], 'o')
-        plt.legend()
-        plt.show()
+    Y = np.multiply(sorted_eigenvectors, np.sqrt(sorted_eigenvalues))
 
-    # get principal components
-    pca_components = sorted_eigenvectors[:, :n_components]
-    transformed_data = np.dot(data, pca_components)
+    return Y
 
-    return transformed_data, pca_components
 
 ###############################################
 # Functions to implement the DBSCAN algorithm #
 ###############################################
-
 
 def find_neighbors(X, center_id, eps):
     neighbors = []
