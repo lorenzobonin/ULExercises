@@ -116,13 +116,13 @@ def k_pca(data, n_components=2, sigma=1.0):
 
     K = gaussian_kernel(get_distance_matrix(data), sigma=sigma)
     G = get_double_centered_Gram(K)
-
+    
     eigenvalues, eigenvectors = sp.linalg.eigh(G, subset_by_index=(len(G)-n_components, len(G)-1))
     sorted_eigenvalues = eigenvalues[::-1]
     sorted_eigenvectors = eigenvectors[:,::-1]
 
     Y = np.multiply(sorted_eigenvectors, np.sqrt(sorted_eigenvalues))
-
+    
     return Y
 
 
